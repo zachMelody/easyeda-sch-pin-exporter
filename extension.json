@@ -1,0 +1,67 @@
+{
+	"name": "sch-pin-exporter",
+	"uuid": "b3f80f172924431594ff657ad7317c9c",
+	"displayName": "原理图引脚网络导出器",
+	"description": "轻松导出原理图引脚，包括引脚编号、名称、类型和连接网络等信息，支持多种格式，提升设计效率。",
+	"version": "1.0.0",
+	"publisher": "",
+	"engines": {
+		"eda": "^3.0.0"
+	},
+	"license": "Apache-2.0",
+	"repository": {
+		"type": "extension-store",
+		"url": ""
+	},
+	"categories": "Other",
+	"keywords": [
+		"SDK"
+	],
+	"images": {
+		"logo": "./images/logo.png"
+	},
+	"homepage": "",
+	"bugs": "",
+	"activationEvents": {},
+	"entry": "./dist/index",
+	"dependentExtensions": {},
+	"headerMenus": {
+		"home": [
+			{
+				"id": "AdvancedSchematicPinoutExporter",
+				"title": "引脚网络导出",
+				"menuItems": [
+					{
+						"id": "About",
+						"title": "关于",
+						"registerFn": "about"
+					},
+					{
+						"id": "Export",
+						"title": "导出引脚网络",
+						"registerFn": "exportSchematicPinout"
+					}
+				]
+			}
+		],
+		"sch": [
+			{
+				"id": "AdvancedSchematicPinoutExporter",
+				"title": "引脚网络导出",
+				"menuItems": [
+					{
+						"id": "About",
+						"title": "关于",
+						"registerFn": "about"
+					},
+					{
+						"id": "Export",
+						"title": "导出引脚网络",
+						"registerFn": "exportSchematicPinout"
+					}
+				]
+			}
+		]
+
+	}
+}
