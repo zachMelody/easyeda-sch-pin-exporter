@@ -128,9 +128,9 @@ export async function exportSchematicPinout(): Promise<void> {
 		).filter(
 			// 进一步过滤出有效的元件位号
 			(c) => {
-				let des = c.getState_Designator();
+				const des = c.getState_Designator();
 				return !!des && VAILID_DESIGNATOR_LIST.some(prefix =>
-					new RegExp(`^${prefix}\\d+([A-Z])?$`, 'i').test(des)
+					new RegExp(`^${prefix}\\d+([A-Z])?$`, 'i').test(des),
 				);
 			},
 		);
@@ -197,7 +197,7 @@ export async function exportSchematicPinout(): Promise<void> {
 			// 元件描述
 			const props = component.getState_OtherProperty();
 			if (props) {
-				const description = props['Description'];
+				const description = props.Description;
 				description && lines.push(`- **描述**: ${description}`);
 			}
 			lines.push('');

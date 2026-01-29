@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: '版本号 (如 1.0.0，不含 v 前缀)'
+        description: 版本号 (如 1.0.0，不含 v 前缀)
         required: true
         type: string
 
@@ -25,7 +25,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
+          cache: npm
 
       - name: Install dependencies
         run: npm ci
