@@ -40,10 +40,83 @@ const PIN_TYPE_MAP = {
 };
 
 /**
+ * 根据网络名称推断电源/地类型
+ * @returns 'Power' | 'Ground' | null
+ */
+function inferPinTypeFromNetName(netName: string): 'Power' | 'Ground' | null {
+	if (!netName || netName === '-')
+		return null;
+
+	const upperNet = netName.toUpperCase();
+
+	// 地网络模式：GND, VSS, DGND, AGND, PGND, EARTH, 0V 等
+	if (/^(?:V?SS|D?GND|A?GND|P?GND|EARTH|0V)/.test(upperNet)
+		|| upperNet.endsWith('GND')) {
+		return 'Ground';
+	}
+
+	// 电源网络模式：VCC, VDD, V+, +3V3, +5V, VBAT, VBUS, VIN+/-, AVCC, DVCC 等
+	if (/^(?:V(?:CC|DD|BAT|BUS|REF|IN|OUT)[+-]?|A?VCC|D?VCC|\+?\d+V?\d*|V\+)/.test(upperNet)
+		|| /^[+P]\d/.test(upperNet)) {
+		return 'Power';
+	}
+
+	return null;
+}
+
+/**
+ * 综合 pinType 和网络名称获取最终的引脚类型显示字符串
+ */
+function getPinTypeDisplay(pinType: string, netName: string): string {
+	const inferredType = inferPinTypeFromNetName(netName);
+
+	// 当 pinType 为 Power/Ground 时，优先用网络名称细分（Power 类引脚可能实际是地）
+	if (pinType === 'Power' || pinType === 'Ground') {
+		return PIN_TYPE_MAP[inferredType ?? pinType];
+	}
+
+	// 非电源类 pinType，尝试从网络名称推断
+	if (inferredType) {
+		return PIN_TYPE_MAP[inferredType];
+	}
+
+	// 否则使用原始 pinType
+	return PIN_TYPE_MAP[pinType as keyof typeof PIN_TYPE_MAP] || pinType;
+}
+
+/**
  * 有效的元件位号前缀列表
  * @todo 未来可考虑从配置中获取
  */
 const VAILID_DESIGNATOR_LIST = ['U'];
+
+/**
+ * 需要排除的元件名称关键词（大写匹配）
+ * 二维码标识、排针排母、连接器等非芯片元件
+ */
+const EXCLUDED_NAME_KEYWORDS = [
+	'二维码',
+	'QR',
+	'排针',
+	'排母',
+	'排座',
+	'插针',
+	'插座',
+	'WAFER',
+	'HEADER',
+	'CONNECTOR',
+];
+
+/**
+ * 判断元件是否应被排除（非功能性芯片）
+ */
+function isExcludedComponent(name: string, description: string): boolean {
+	const upperName = name.toUpperCase();
+	const upperDesc = description.toUpperCase();
+	return EXCLUDED_NAME_KEYWORDS.some(kw =>
+		upperName.includes(kw) || upperDesc.includes(kw),
+	);
+}
 
 /**
  * 网表 JSON 数据结构
@@ -133,6 +206,14 @@ export async function exportSchematicPinout(): Promise<void> {
 					new RegExp(`^${prefix}\\d+([A-Z])?$`, 'i').test(des),
 				);
 			},
+		).filter(
+			// 排除非芯片元件（二维码、排针排母等）
+			(c) => {
+				const name = c.getState_Name() || '';
+				const props = c.getState_OtherProperty();
+				const description = props?.Description || '';
+				return !isExcludedComponent(name, description);
+			},
 		);
 
 		if (!components || components.length === 0) {
@@ -170,7 +251,7 @@ export async function exportSchematicPinout(): Promise<void> {
 			const manufacturer = component.getState_Manufacturer();
 			const manufacturerId = component.getState_ManufacturerId();
 
-			if (name === '={Manufacturer Part}' || name === '未知名称') {
+			if (name === '={Manufacturer Part}' || name === '={Value}' || name === '未知名称') {
 				// 优先使用型号，其次使用 subPartName（去除末尾 ".数字" 后缀）
 				const subPartName = component.getState_SubPartName();
 				name = (subPartName ? subPartName.replace(/\.\d+$/, '') : '') || manufacturerId || name;
@@ -226,10 +307,11 @@ export async function exportSchematicPinout(): Promise<void> {
 					const pinNumber = pin.getState_PinNumber();
 					const pinName = pin.getState_PinName();
 					const pinType = pin.getState_pinType();
-					const pinTypeStr = PIN_TYPE_MAP[pinType] || pinType;
 					// 从网表映射中查询该引脚连接的网络
 					const pinNetKey = `${designator}-${pinNumber}`;
 					const netName = pinNetMap.get(pinNetKey) || '-';
+					// 综合 pinType 和网络名称判断引脚类型
+					const pinTypeStr = getPinTypeDisplay(pinType, netName);
 					lines.push(`| ${pinNumber} | ${pinName} | ${pinTypeStr} | ${netName} |`);
 				}
 			}

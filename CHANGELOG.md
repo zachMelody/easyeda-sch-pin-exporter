@@ -5,6 +5,20 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.1.0] - 2026-02-02
+
+### 新增
+
+- 引脚类型智能识别
+  - 综合 PIN_TYPE 和网络名称判断电源/地引脚
+  - 电源网络匹配：VCC、VDD、VBAT、VBUS、VIN+/-、VOUT+/-、+3V3、+5V 等
+  - 地网络匹配：GND、VSS、DGND、AGND、PGND 等
+  - 修正原始类型标记不准确的引脚（如 Power 类型但实际连接 GND）
+- 元件过滤增强
+  - 排除二维码标识元件
+  - 排除排针、排母、排座等连接器
+  - 排除插针、插座、WAFER、HEADER 等非芯片元件
+
 ## [1.0.0] - 2026-01-29
 
 ### 新增

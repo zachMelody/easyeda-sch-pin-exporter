@@ -16,3 +16,7 @@
 /tsconfig.json
 .eslintcache
 debug.log
+/tests/
+/CLAUDE.md
+.claude/
+.spec-workflow
