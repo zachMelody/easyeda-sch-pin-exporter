@@ -10,7 +10,13 @@
  * 如需了解更多开发细节，请阅读：
  * https://prodocs.lceda.cn/cn/api/guide/
  */
+import { marked } from 'marked';
 import * as extensionConfig from '../extension.json';
+
+// 消息总线主题
+const TOPIC_PREVIEW_DATA = 'sch-pin-exporter:preview-data';
+const TOPIC_PREVIEW_ACTION = 'sch-pin-exporter:preview-action';
+const IFRAME_ID = 'sch-pin-exporter-preview';
 
 // eslint-disable-next-line unused-imports/no-unused-vars
 export function activate(status?: 'onStartupFinished', arg?: string): void {}
@@ -326,16 +332,54 @@ export async function exportSchematicPinout(): Promise<void> {
 
 		// 生成文件内容
 		const markdown = lines.join('\n');
-		const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
-		const fileName = `schematic_pinout_${new Date().toISOString().slice(0, 10)}.md`;
+		const componentCount = sortedComponentData.length;
 
-		// 保存文件
-		await eda.sys_FileSystem.saveFile(blob, fileName);
+		// 使用 marked 渲染 HTML 用于预览
+		const html = await marked(markdown);
 
-		eda.sys_Dialog.showInformationMessage(
-			`成功导出 ${sortedComponentData.length} 个元件的引脚信息`,
-			'导出引脚',
+		// 先关闭可能存在的旧预览窗口
+		await eda.sys_IFrame.closeIFrame(IFRAME_ID);
+
+		// 打开预览 IFrame
+		await eda.sys_IFrame.openIFrame(
+			'/iframe/preview.html',
+			900,
+			600,
+			IFRAME_ID,
+			{
+				maximizeButton: true,
+				grayscaleMask: true,
+				buttonCallbackFn: (button) => {
+					if (button === 'close') {
+						eda.sys_IFrame.closeIFrame(IFRAME_ID);
+					}
+				},
+			},
 		);
+
+		// 延迟发送数据，等待 IFrame 加载完成
+		setTimeout(() => {
+			eda.sys_MessageBus.push(TOPIC_PREVIEW_DATA, {
+				html,
+				markdown,
+				count: componentCount,
+			});
+		}, 1000);
+
+		// 监听用户操作
+		eda.sys_MessageBus.pull(TOPIC_PREVIEW_ACTION, async (data) => {
+			await eda.sys_IFrame.closeIFrame(IFRAME_ID);
+
+			if (data?.action === 'export' && data.markdown) {
+				const blob = new Blob([data.markdown], { type: 'text/markdown;charset=utf-8' });
+				const fileName = `schematic_pinout_${new Date().toISOString().slice(0, 10)}.md`;
+				await eda.sys_FileSystem.saveFile(blob, fileName);
+				eda.sys_Dialog.showInformationMessage(
+					`成功导出 ${componentCount} 个元件的引脚信息`,
+					'导出引脚',
+				);
+			}
+		});
 	}
 	catch (error) {
 		const errorMessage = error instanceof Error ? error.message : String(error);

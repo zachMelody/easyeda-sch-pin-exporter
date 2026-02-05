@@ -5,6 +5,17 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.2.0] - 2026-02-02
+
+### 新增
+
+- Markdown 预览功能
+  - 导出前可预览渲染后的引脚列表
+  - 使用 marked 库渲染 Markdown
+  - 通过 IFrame 弹窗展示预览内容
+  - 支持最大化窗口查看
+  - 预览确认后再导出文件
+
 ## [1.1.0] - 2026-02-02
 
 ### 新增
