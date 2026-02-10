@@ -46,24 +46,47 @@ const PIN_TYPE_MAP = {
 };
 
 /**
- * 根据网络名称推断电源/地类型
+ * NetPort 符号 UUID 到类型的映射
+ * 通过内部渠道获取的系统内置 netport 符号对应关系
+ */
+const NETPORT_UUID_TYPE_MAP: Record<string, string> = {
+	'a66c3794a6a486ba': '⬅️ 输出',
+	'90ef8e566193b790': '↔️ 双向',
+	'fdb58b75c536845d': '➡️ 输入',
+	// TODO: 补充其他 netport 类型的 uuid 映射
+};
+
+/**
+ * 根据 NetPort 的 component.uuid 获取其类型名称
+ * @param uuid - netport 组件的 uuid
+ * @returns 类型名称，未找到则返回 undefined
+ */
+export function getNetPortTypeByUuid(uuid: string): string | undefined {
+	return NETPORT_UUID_TYPE_MAP[uuid];
+}
+
+/**
+ * 根据名称推断电源/地类型（适用于引脚名称或网络名称）
  * @returns 'Power' | 'Ground' | null
  */
-function inferPinTypeFromNetName(netName: string): 'Power' | 'Ground' | null {
-	if (!netName || netName === '-')
+function inferPowerGroundType(name: string): 'Power' | 'Ground' | null {
+	if (!name || name === '-')
 		return null;
 
-	const upperNet = netName.toUpperCase();
+	const upper = name.toUpperCase();
 
-	// 地网络模式：GND, VSS, DGND, AGND, PGND, EARTH, 0V 等
-	if (/^(?:V?SS|D?GND|A?GND|P?GND|EARTH|0V)/.test(upperNet)
-		|| upperNet.endsWith('GND')) {
+	// 地引脚/网络模式：GND, VSS, DGND, AGND, PGND, EARTH, 0V, EP 等
+	if (/^(?:V?SS|D?GND|A?GND|P?GND|EARTH|0V|EP\d*)/.test(upper)
+		|| upper.endsWith('GND')
+		|| upper === 'GND'
+		|| upper === 'EP') {
 		return 'Ground';
 	}
 
-	// 电源网络模式：VCC, VDD, V+, +3V3, +5V, VBAT, VBUS, VIN+/-, AVCC, DVCC 等
-	if (/^(?:V(?:CC|DD|BAT|BUS|REF|IN|OUT)[+-]?|A?VCC|D?VCC|\+?\d+V?\d*|V\+)/.test(upperNet)
-		|| /^[+P]\d/.test(upperNet)) {
+	// 电源引脚/网络模式：VCC, VDD, VS, V+, +3V3, +5V, VBAT, VBUS, VIN+/-, AVCC, DVCC 等
+	if (/^(?:V(?:CC|DD|BAT|BUS|REF|IN|OUT|S)[+-]?|A?VCC|D?VCC|\+?\d+V?\d*|V\+)/.test(upper)
+		|| /^[+P]\d/.test(upper)
+		|| upper === 'VS') {
 		return 'Power';
 	}
 
@@ -71,22 +94,27 @@ function inferPinTypeFromNetName(netName: string): 'Power' | 'Ground' | null {
 }
 
 /**
- * 综合 pinType 和网络名称获取最终的引脚类型显示字符串
+ * 综合引脚名称、pinType 和网络名称获取最终的引脚类型显示字符串
+ *
+ * 优先级：
+ * 1. 引脚名称（最可靠，因为配置引脚可能连到 VCC/GND 但本身不是电源/地）
+ * 2. 原始 pinType（元件库定义的类型）
+ * 3. 网络名称仅用于细分 Power/Ground（当 pinType 为 Power 时区分是电源还是地）
  */
-function getPinTypeDisplay(pinType: string, netName: string): string {
-	const inferredType = inferPinTypeFromNetName(netName);
+function getPinTypeDisplay(pinType: string, pinName: string, netName: string): string {
+	// 1. 优先从引脚名称推断（最可靠）
+	const inferredFromName = inferPowerGroundType(pinName);
+	if (inferredFromName) {
+		return PIN_TYPE_MAP[inferredFromName];
+	}
 
-	// 当 pinType 为 Power/Ground 时，优先用网络名称细分（Power 类引脚可能实际是地）
+	// 2. 当 pinType 为 Power/Ground 时，用网络名称细分（Power 类引脚可能实际是地）
 	if (pinType === 'Power' || pinType === 'Ground') {
-		return PIN_TYPE_MAP[inferredType ?? pinType];
+		const inferredFromNet = inferPowerGroundType(netName);
+		return PIN_TYPE_MAP[inferredFromNet ?? pinType];
 	}
 
-	// 非电源类 pinType，尝试从网络名称推断
-	if (inferredType) {
-		return PIN_TYPE_MAP[inferredType];
-	}
-
-	// 否则使用原始 pinType
+	// 3. 使用原始 pinType
 	return PIN_TYPE_MAP[pinType as keyof typeof PIN_TYPE_MAP] || pinType;
 }
 
@@ -143,6 +171,35 @@ interface NetlistJson {
 }
 
 /**
+ * NetPort 信息结构
+ */
+interface NetPortInfo {
+	primitiveId: string;
+	net: string;
+	x: number;
+	y: number;
+	componentRef?: {
+		libraryUuid: string;
+		uuid: string;
+	};
+	symbolRef?: {
+		libraryUuid: string;
+		uuid: string;
+	};
+	/** 完整的 ILIB_SymbolItem，用于调试 */
+	symbolItem?: {
+		libraryType: string;
+		uuid: string;
+		libraryUuid: string;
+		cbbUuid?: string;
+		name: string;
+		classification?: unknown;
+		type: number;
+		description?: string;
+	};
+}
+
+/**
  * 解析网表 JSON 数据，建立 "位号-引脚编号" 到 "网络名" 的映射
  */
 function parseNetlistToMap(netlistStr: string): Map<string, string> {
@@ -178,6 +235,90 @@ function parseNetlistToMap(netlistStr: string): Map<string, string> {
 }
 
 /**
+ * 收集所有 netport 组件信息
+ * @param allComponents - 所有原理图组件
+ * @returns 网络名称 -> NetPort 信息列表的映射
+ */
+async function collectNetPorts(
+	allComponents: Awaited<ReturnType<typeof eda.sch_PrimitiveComponent.getAll>>,
+): Promise<Map<string, NetPortInfo[]>> {
+	const netPortMap = new Map<string, NetPortInfo[]>();
+
+	// 过滤出 netport 类型的组件
+	const netports = allComponents.filter(c => c.getState_ComponentType() === 'netport');
+
+	console.warn(`[collectNetPorts] 找到 ${netports.length} 个 netport 组件`);
+
+	for (const netport of netports) {
+		const net = netport.getState_Net();
+		if (!net)
+			continue;
+
+		const primitiveId = netport.getState_PrimitiveId();
+		const x = netport.getState_X();
+		const y = netport.getState_Y();
+		const componentRef = netport.getState_Component();
+		const symbolRef = netport.getState_Symbol();
+
+		console.warn(`[NetPort ${primitiveId}] net=${net}, componentRef=${JSON.stringify(componentRef)}, symbolRef=${JSON.stringify(symbolRef)}`);
+
+		const info: NetPortInfo = {
+			primitiveId,
+			net,
+			x,
+			y,
+			componentRef,
+			symbolRef,
+		};
+
+		// 添加到映射
+		const list = netPortMap.get(net) || [];
+		list.push(info);
+		netPortMap.set(net, list);
+	}
+
+	return netPortMap;
+}
+
+/**
+ * 计算两点间的欧几里得距离
+ */
+function distance(x1: number, y1: number, x2: number, y2: number): number {
+	return Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+}
+
+/**
+ * 根据引脚坐标找到最近的 NetPort
+ * @param pinX - 引脚 X 坐标
+ * @param pinY - 引脚 Y 坐标
+ * @param netPorts - 同一网络的 NetPort 列表
+ * @param maxDistance - 最大匹配距离阈值
+ * @returns 最近的 NetPort 或 undefined
+ */
+function findClosestNetPort(
+	pinX: number,
+	pinY: number,
+	netPorts: NetPortInfo[],
+	maxDistance = 100,
+): NetPortInfo | undefined {
+	if (!netPorts || netPorts.length === 0)
+		return undefined;
+
+	let closest: NetPortInfo | undefined;
+	let minDist = Infinity;
+
+	for (const np of netPorts) {
+		const dist = distance(pinX, pinY, np.x, np.y);
+		if (dist < minDist && dist <= maxDistance) {
+			minDist = dist;
+			closest = np;
+		}
+	}
+
+	return closest;
+}
+
+/**
  * 导出原理图芯片引脚到Markdown
  *
  * 遍历当前原理图中的所有元件，提取芯片及其引脚信息，生成Markdown文档。
@@ -193,13 +334,15 @@ export async function exportSchematicPinout(): Promise<void> {
 		}
 		const netlistStr = await netlistFile.text();
 		const pinNetMap = parseNetlistToMap(netlistStr);
-
 		// 获取所有元件
 		// 注意：由于 eda.sch_PrimitiveComponent 是联合类型，参数类型不兼容，故不传参数获取全部
 		const allComponents = await eda.sch_PrimitiveComponent.getAll(
 			undefined,
 			true, // allSchematicPages: 获取所有原理图页面
 		);
+
+		// 收集所有 netport 信息（按网络名称分组）
+		const netPortMap = await collectNetPorts(allComponents);
 
 		// 过滤出 COMPONENT 类型（真正的芯片/器件）
 		const components = allComponents.filter(
@@ -313,11 +456,36 @@ export async function exportSchematicPinout(): Promise<void> {
 					const pinNumber = pin.getState_PinNumber();
 					const pinName = pin.getState_PinName();
 					const pinType = pin.getState_pinType();
+					const pinX = pin.getState_X();
+					const pinY = pin.getState_Y();
+
 					// 从网表映射中查询该引脚连接的网络
 					const pinNetKey = `${designator}-${pinNumber}`;
 					const netName = pinNetMap.get(pinNetKey) || '-';
-					// 综合 pinType 和网络名称判断引脚类型
-					const pinTypeStr = getPinTypeDisplay(pinType, netName);
+
+					// 综合引脚名称、pinType 和网络名称判断引脚类型
+					let pinTypeStr = getPinTypeDisplay(pinType, pinName, netName);
+
+					// 查找关联的 NetPort，如果有则优先使用 NetPort 的类型
+					if (netName !== '-') {
+						const candidateNetPorts = netPortMap.get(netName);
+						if (candidateNetPorts && candidateNetPorts.length > 0) {
+							// 尝试找最近的 netport（坐标验证）
+							const closestNetPort = findClosestNetPort(pinX, pinY, candidateNetPorts);
+							const matchedNetPort = closestNetPort || candidateNetPorts[0];
+
+							// 获取 NetPort 类型（优先使用 UUID 映射）
+							const netPortType = matchedNetPort.componentRef?.uuid
+								? getNetPortTypeByUuid(matchedNetPort.componentRef.uuid)
+								: undefined;
+
+							// 如果有 NetPort 类型，覆盖引脚类型显示
+							if (netPortType) {
+								pinTypeStr = netPortType;
+							}
+						}
+					}
+
 					lines.push(`| ${pinNumber} | ${pinName} | ${pinTypeStr} | ${netName} |`);
 				}
 			}
@@ -329,6 +497,23 @@ export async function exportSchematicPinout(): Promise<void> {
 			lines.push('---');
 			lines.push('');
 		}
+
+		// // 添加 NetPort 调试信息部分
+		// lines.push('## [DEBUG] NetPort 信息汇总');
+		// lines.push('');
+		// lines.push(`> 共收集到 ${netPortMap.size} 个网络的 NetPort`);
+		// lines.push('');
+
+		// for (const [netName, netPorts] of netPortMap.entries()) {
+		// 	lines.push(`### 网络: ${netName}`);
+		// 	lines.push('');
+		// 	lines.push(`NetPort 数量: ${netPorts.length}`);
+		// 	lines.push('');
+		// 	lines.push('```json');
+		// 	lines.push(JSON.stringify(netPorts, null, 2));
+		// 	lines.push('```');
+		// 	lines.push('');
+		// }
 
 		// 生成文件内容
 		const markdown = lines.join('\n');

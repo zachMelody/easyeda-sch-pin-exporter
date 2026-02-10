@@ -5,6 +5,24 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.3.0] - 2026-02-07
+
+### 新增
+
+- NetPort（网络标签）关联功能
+  - 收集原理图中所有 netport 类型组件
+  - 通过网络名称匹配引脚与 NetPort
+  - 通过坐标距离验证匹配准确性
+  - 引脚表格新增「网络标签存在」列，显示是否有关联的 NetPort
+
+### 已知问题
+
+- **SDK 限制**：`eda.lib_Symbol.get()` 无法获取 netport 组件的符号信息（ILIB_SymbolItem）
+  - `getState_Symbol()` 返回 undefined
+  - 通过 `getState_Component()` 获取的 componentRef 调用 `lib_Symbol.get()` 也返回 undefined
+  - 目前仅能获取 netport 的基础属性：primitiveId、net、x、y、componentRef
+  - 符号名称、类型、描述等信息暂无法获取，待 SDK 修复或提供替代 API
+
 ## [1.2.0] - 2026-02-02
 
 ### 新增
